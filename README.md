@@ -57,7 +57,33 @@ cd nexus
 source .venv/bin/activate
 ```
 
-### 2) Mock mode (fast, no credits)
+### 2) Launch the Laboratory UI (PDF Audit + Bridge)
+
+```bash
+streamlit run app.py
+```
+
+This app now implements:
+
+- PDF upload ingestion (`.pdf`) using Streamlit uploader
+- PDF-to-text conversion via PyMuPDF (`fitz`)
+- Structured deconstruction with Pydantic schema:
+  - `abstract_summary`
+  - `methodology_description`
+  - `results_metrics`
+  - `conclusion`
+- Ghost Inspector consistency report JSON:
+  - `is_consistent`
+  - `discrepancies`
+  - `verdict`
+- Knowledge bridge graph generation with NetworkX + sentence-transformers
+- Graph visualization via `streamlit-agraph`
+- Tabs:
+  - `📊 Paper Audit`
+  - `🕸️ Knowledge Bridge`
+  - `🧩 Extracted Data`
+
+### 3) Mock mode (fast, no credits)
 
 ```bash
 export EVP_LLM_MODE=mock
@@ -72,7 +98,7 @@ for e in result["experiments"]:
 PY
 ```
 
-### 3) Static mock mode (frontend/demo snapshots)
+### 4) Static mock mode (frontend/demo snapshots)
 
 Returns hardcoded deterministic JSON and bypasses agent calls.
 
@@ -89,7 +115,7 @@ for e in result["experiments"]:
 PY
 ```
 
-### 4) Local ACPX CLI mode (Gemini/Qwen via ACPX)
+### 5) Local ACPX CLI mode (Gemini/Qwen via ACPX)
 
 ```bash
 export EVP_LLM_MODE=local
