@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from typing import Any, Dict, List
 
 import plotly.graph_objects as go
@@ -21,37 +22,39 @@ CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
 
 :root {
-  --bg-1: #0b1020;
-  --bg-2: #0d1a2b;
-  --bg-3: #0f2233;
-  --panel: #111827;
-  --panel-2: #0b1425;
-  --ink: #e6eefc;
-  --muted: #9fb0c8;
-  --accent: #27f4c0;
-  --accent-2: #3ca1ff;
+  --bg-1: #0a0f1f;
+  --bg-2: #0c1426;
+  --bg-3: #101b2e;
+  --panel: rgba(13, 20, 38, 0.88);
+  --panel-2: rgba(9, 16, 31, 0.92);
+  --ink: #eef5ff;
+  --muted: #a3b6d3;
+  --accent: #29f1c3;
+  --accent-2: #3bb1ff;
+  --accent-3: #ffd166;
   --warn: #ffb347;
 }
 
 html, body, [class*="stApp"] {
   font-family: "Space Grotesk", sans-serif;
   color: var(--ink);
-  background: radial-gradient(circle at 20% 20%, #1b2a4a 0%, transparent 40%),
-              radial-gradient(circle at 80% 0%, #0f3b4c 0%, transparent 45%),
+  background: radial-gradient(circle at 10% 10%, rgba(41, 241, 195, 0.18) 0%, transparent 40%),
+              radial-gradient(circle at 90% 0%, rgba(59, 177, 255, 0.22) 0%, transparent 45%),
+              radial-gradient(circle at 80% 90%, rgba(255, 209, 102, 0.14) 0%, transparent 45%),
               linear-gradient(135deg, var(--bg-1), var(--bg-2) 55%, var(--bg-3));
 }
 
 section[data-testid="stSidebar"] {
-  background: linear-gradient(180deg, #0b1224, #0d1425);
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(8, 14, 30, 0.96), rgba(10, 18, 36, 0.98));
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .evp-hero {
   padding: 18px 22px;
   border-radius: 18px;
-  background: linear-gradient(135deg, rgba(39, 244, 192, 0.12), rgba(60, 161, 255, 0.12));
-  border: 1px solid rgba(39, 244, 192, 0.25);
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35);
+  background: linear-gradient(135deg, rgba(41, 241, 195, 0.16), rgba(59, 177, 255, 0.14));
+  border: 1px solid rgba(41, 241, 195, 0.28);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.4);
 }
 
 .evp-hero h1 {
@@ -68,9 +71,10 @@ section[data-testid="stSidebar"] {
 .evp-card {
   padding: 18px;
   border-radius: 16px;
-  background: linear-gradient(160deg, rgba(17, 24, 39, 0.95), rgba(7, 12, 23, 0.95));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  background: linear-gradient(160deg, rgba(13, 20, 38, 0.92), rgba(8, 12, 24, 0.96));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(6px);
   animation: fadeUp 0.45s ease;
 }
 
@@ -112,10 +116,10 @@ section[data-testid="stSidebar"] {
 }
 
 .evp-thought {
-  background: rgba(15, 24, 38, 0.65);
+  background: rgba(14, 22, 38, 0.72);
   border-radius: 14px;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   margin-bottom: 10px;
   animation: fadeUp 0.4s ease;
 }
@@ -159,6 +163,14 @@ with st.sidebar:
     budget = st.select_slider("Budget Constraint", options=["Low", "Medium", "High"], value="Medium")
     data_ready = st.toggle("Dataset Ready", value=True)
     llm_mode = st.radio("LLM Mode", options=["mock", "local"], index=0, horizontal=True)
+    st.divider()
+    st.caption("Local paper summaries (.txt/.md)")
+    uploads = st.file_uploader(
+        "Upload papers",
+        type=["txt", "md"],
+        accept_multiple_files=True,
+    )
+    save_uploads = st.button("Save uploads", width="stretch")
     run_button = st.button("Run EVP", type="primary")
 
 
@@ -182,6 +194,28 @@ def run_async(coro):
             return loop.run_until_complete(coro)
         finally:
             loop.close()
+
+
+def _safe_filename(name: str, fallback: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
+    return clean or fallback
+
+
+def save_uploaded_papers(files) -> List[str]:
+    saved: List[str] = []
+    if not files:
+        return saved
+    target_dir = os.path.join("data", "papers")
+    os.makedirs(target_dir, exist_ok=True)
+    for idx, file in enumerate(files, start=1):
+        name = _safe_filename(file.name, f"paper_{idx}.txt")
+        path = os.path.join(target_dir, name)
+        data = file.read()
+        with open(path, "wb") as f:
+            f.write(data)
+        saved.append(path)
+    os.environ["EVP_LOCAL_PAPERS_DIR"] = target_dir
+    return saved
 
 
 def summarize_payload(payload: Dict[str, Any]) -> str:
@@ -208,6 +242,14 @@ if run_button:
             with st.spinner("Synthesizing experiments..."):
                 st.session_state.results = run_async(run_pipeline(topic, goal, constraints))
             status.update(state="complete", label="Pipeline complete")
+
+
+if save_uploads:
+    saved_paths = save_uploaded_papers(uploads)
+    if saved_paths:
+        st.sidebar.success(f"Saved {len(saved_paths)} file(s) to data/papers.")
+    else:
+        st.sidebar.warning("No files uploaded.")
 
 
 results = st.session_state.results
@@ -346,6 +388,6 @@ with left:
                 font=dict(color="#e6eefc", family="Space Grotesk"),
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     else:
         st.info("Enter a topic and run EVP to see ranked experiments, cost, and impact.")

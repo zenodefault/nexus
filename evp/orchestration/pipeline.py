@@ -7,6 +7,7 @@ from evp.agents.impact_predictor import ImpactPredictorAgent
 from evp.agents.literature import LiteratureAgent
 from evp.agents.resource_estimator import ResourceEstimatorAgent
 from evp.data.arxiv import build_literature_digest, fetch_papers
+from evp.data.local import load_local_papers
 from evp.scoring.scoring import score_experiments
 from evp.utils.context import RunContext
 from evp.utils.llm import LocalLLMClient, MockLLMClient
@@ -111,6 +112,12 @@ async def run_pipeline(topic: str, goal: str, constraints: Dict | None = None) -
 
 
 def _load_papers_for_context(topic: str, mode: str, logger) -> List[Dict]:
+    local_dir = os.getenv("EVP_LOCAL_PAPERS_DIR", "data/papers")
+    local_papers = load_local_papers(local_dir)
+    if local_papers:
+        logger.info("Using %s local paper(s) from %s", len(local_papers), local_dir)
+        return local_papers
+
     if mode == "mock":
         return _mock_papers(topic)
     if os.getenv("EVP_USE_ARXIV", "true").lower() != "true":

@@ -2,7 +2,7 @@ from typing import Dict
 
 from evp.agents.base import BaseAgent
 from evp.utils.context import RunContext
-from evp.utils.validation import require_fields
+from evp.utils.validation import fill_missing, require_fields
 
 
 class LiteratureAgent(BaseAgent):
@@ -17,6 +17,15 @@ class LiteratureAgent(BaseAgent):
     def run_with_context(self, context: RunContext) -> Dict:
         digest = context.constraints.get("literature_digest", "No paper context available.")
         payload = self.run_sync(f"Topic: {context.topic}. Goal: {context.goal}. {digest}")
+        payload = fill_missing(
+            payload,
+            {
+                "summary": "Unknown",
+                "key_findings": [],
+                "limitations": [],
+                "hypotheses": [],
+            },
+        )
         require_fields(payload, ["summary", "key_findings", "limitations", "hypotheses"], "LiteratureAgent")
         context.add_memory("LiteratureAgent", payload)
         return payload

@@ -107,6 +107,7 @@ PY
 
 `LocalLLMClient` sends prompts via stdin to the configured ACPX command and parses JSON from CLI output.
 
+
 ## arXiv Integration
 
 `evp/data/arxiv.py` exposes:
@@ -120,6 +121,28 @@ Reliability features:
 - retry loop for transient failures/rate-limit style errors,
 - graceful fallback to empty list if arXiv is unavailable,
 - text normalization before passing to agents.
+
+## Local Papers (Optional)
+
+If you want to use your own paper summaries instead of arXiv, drop `.txt` or `.md` files into `data/papers/`.
+Local files take priority over arXiv.
+
+Format options:
+
+```text
+Title: My Paper Title
+Authors: Jane Doe, John Smith
+
+Main abstract or summary text goes here.
+```
+
+If you omit `Title:` and `Authors:`, the filename becomes the title and the full file body becomes the abstract.
+
+To customize the folder:
+
+```bash
+export EVP_LOCAL_PAPERS_DIR=data/papers
+```
 
 ## Pipeline Contract
 
