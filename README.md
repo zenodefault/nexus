@@ -36,6 +36,18 @@ pip install -U pip
 pip install -r requirements.txt
 ```
 
+### CrewAI note
+
+`crewai` is not in base requirements because it needs Python `<3.14`.
+If you need CrewAI, create a Python 3.11 or 3.12 virtualenv and install it separately:
+
+```bash
+python3.11 -m venv .venv311
+source .venv311/bin/activate
+pip install -U pip
+pip install crewai
+```
+
 ## Run the Project
 
 ### 1) Activate environment
