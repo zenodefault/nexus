@@ -107,6 +107,23 @@ PY
 
 `LocalLLMClient` sends prompts via stdin to the configured ACPX command and parses JSON from CLI output.
 
+## Syntropy (Cross-Domain Research Catalyst)
+
+Syntropy discovers bridges between two scientific domains by building a concept graph
+and finding shortest paths across it. Launch the Streamlit UI and open the **Syntropy**
+tab.
+
+```bash
+streamlit run app.py
+```
+
+### Syntropy Environment Controls
+
+- `SYNTROPY_LLM_MODE=mock|openai` (default `openai`)
+- `SYNTROPY_MODEL=gpt-4o` (used when `openai` mode is active)
+- `OPENAI_API_KEY=...` (required for `openai` mode)
+- `SYNTROPY_EMBEDDINGS_MODEL=all-MiniLM-L6-v2`
+- `SYNTROPY_LOCAL_PAPERS_DIR=data/papers`
 
 ## arXiv Integration
 

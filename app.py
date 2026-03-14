@@ -6,7 +6,16 @@ from typing import Any, Dict, List
 import plotly.graph_objects as go
 import streamlit as st
 
+try:
+    from streamlit_agraph import Config, Edge, Node, agraph
+except ImportError:  # pragma: no cover - optional dependency for Syntropy graph
+    Config = None
+    Edge = None
+    Node = None
+    agraph = None
+
 from evp.orchestration.pipeline import run_pipeline
+from evp.syntropy.graph import build_syntropy_app
 
 
 st.set_page_config(
@@ -144,44 +153,22 @@ st.markdown(CSS, unsafe_allow_html=True)
 st.markdown(
     """
 <div class="evp-hero">
-  <h1>AI Research Decision Engine</h1>
-  <p>Predicts which experiment is worth running before you burn compute.</p>
+  <h1>Research Ops Console</h1>
+  <p>Upload papers, set a goal, and let the agents build the next step.</p>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
 
-with st.sidebar:
-    st.subheader("Experiment Setup")
-    topic = st.text_input("Research Topic", value="Brain MRI classification")
-    goal = st.text_area(
-        "Goal",
-        value="Improve classification accuracy with minimal compute waste.",
-        height=90,
-    )
-    budget = st.select_slider("Budget Constraint", options=["Low", "Medium", "High"], value="Medium")
-    data_ready = st.toggle("Dataset Ready", value=True)
-    llm_mode = st.radio("LLM Mode", options=["mock", "local"], index=0, horizontal=True)
-    st.divider()
-    st.caption("Local paper summaries (.txt/.md)")
-    uploads = st.file_uploader(
-        "Upload papers",
-        type=["txt", "md"],
-        accept_multiple_files=True,
-    )
-    save_uploads = st.button("Save uploads", width="stretch")
-    run_button = st.button("Run EVP", type="primary")
-
-
-constraints = {"budget": budget, "dataset_ready": data_ready}
-
-
 if "results" not in st.session_state:
     st.session_state.results = None
+if "syntropy_results" not in st.session_state:
+    st.session_state.syntropy_results = None
 
 
 status_placeholder = st.empty()
+syntropy_status_placeholder = st.empty()
 
 
 def run_async(coro):
@@ -196,12 +183,17 @@ def run_async(coro):
             loop.close()
 
 
+@st.cache_resource
+def get_syntropy_app():
+    return build_syntropy_app()
+
+
 def _safe_filename(name: str, fallback: str) -> str:
     clean = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
     return clean or fallback
 
 
-def save_uploaded_papers(files) -> List[str]:
+def save_uploaded_papers(files, env_var: str = "EVP_LOCAL_PAPERS_DIR") -> List[str]:
     saved: List[str] = []
     if not files:
         return saved
@@ -210,12 +202,53 @@ def save_uploaded_papers(files) -> List[str]:
     for idx, file in enumerate(files, start=1):
         name = _safe_filename(file.name, f"paper_{idx}.txt")
         path = os.path.join(target_dir, name)
-        data = file.read()
+        data = file.getvalue()
         with open(path, "wb") as f:
             f.write(data)
         saved.append(path)
-    os.environ["EVP_LOCAL_PAPERS_DIR"] = target_dir
+    os.environ[env_var] = target_dir
     return saved
+
+
+def parse_uploaded_paper(file, fallback_id: str) -> Dict[str, Any]:
+    raw = file.getvalue().decode("utf-8", errors="ignore").strip()
+    if not raw:
+        return {
+            "paper_id": fallback_id,
+            "title": file.name or fallback_id,
+            "abstract": "",
+            "authors": [],
+        }
+
+    lines = raw.splitlines()
+    title = file.name or fallback_id
+    authors: List[str] = []
+    body_start = 0
+
+    if lines and lines[0].lower().startswith("title:"):
+        title = lines[0].split(":", 1)[1].strip() or title
+        body_start = 1
+        if len(lines) > 1 and lines[1].lower().startswith("authors:"):
+            authors_line = lines[1].split(":", 1)[1]
+            authors = [a.strip() for a in authors_line.split(",") if a.strip()]
+            body_start = 2
+
+    abstract = "\n".join(lines[body_start:]).strip()
+    return {
+        "paper_id": fallback_id,
+        "title": title,
+        "abstract": abstract,
+        "authors": authors,
+        "source": "upload",
+    }
+
+
+def infer_topic_from_papers(papers: List[Dict[str, Any]], fallback: str) -> str:
+    for paper in papers:
+        title = str(paper.get("title", "")).strip()
+        if title:
+            return title
+    return fallback
 
 
 def summarize_payload(payload: Dict[str, Any]) -> str:
@@ -230,52 +263,89 @@ def summarize_payload(payload: Dict[str, Any]) -> str:
     return "Captured context"
 
 
-if run_button:
-    os.environ["EVP_LLM_MODE"] = llm_mode
-    with status_placeholder:
-        with st.status("Running EVP pipeline", expanded=True) as status:
-            status.write("LiteratureAgent scanning papers")
-            status.write("HypothesisAgent drafting experiments")
-            status.write("ResourceEstimatorAgent sizing compute")
-            status.write("ImpactPredictorAgent scoring novelty")
-            status.write("Scoring Engine ranking value")
-            with st.spinner("Synthesizing experiments..."):
-                st.session_state.results = run_async(run_pipeline(topic, goal, constraints))
-            status.update(state="complete", label="Pipeline complete")
+tab_evp, tab_syntropy = st.tabs(["EVP", "Syntropy"])
 
+with tab_evp:
+    st.markdown("**EVP: Experiment Value Predictor**")
+    st.caption("Upload papers, define the goal and budget, then run the pipeline.")
 
-if save_uploads:
-    saved_paths = save_uploaded_papers(uploads)
-    if saved_paths:
-        st.sidebar.success(f"Saved {len(saved_paths)} file(s) to data/papers.")
-    else:
-        st.sidebar.warning("No files uploaded.")
+    with st.form("evp_form"):
+        uploads = st.file_uploader(
+            "Upload papers",
+            type=["txt", "md"],
+            accept_multiple_files=True,
+            key="evp_uploads",
+        )
+        goal = st.text_area(
+            "Goal",
+            value="Improve classification accuracy with minimal compute waste.",
+            height=90,
+            key="evp_goal",
+        )
+        budget = st.select_slider(
+            "Budget Constraint",
+            options=["Low", "Medium", "High"],
+            value="Medium",
+            key="evp_budget",
+        )
+        with st.expander("Advanced", expanded=False):
+            llm_mode = st.radio(
+                "LLM Mode",
+                options=["mock", "local"],
+                index=0,
+                horizontal=True,
+                key="evp_llm_mode",
+            )
+        evp_submit = st.form_submit_button("Run EVP")
 
+    if evp_submit:
+        if not uploads:
+            st.warning("Upload at least one paper to run EVP.")
+        else:
+            parsed = [
+                parse_uploaded_paper(file, f"evp_{idx}")
+                for idx, file in enumerate(uploads, start=1)
+            ]
+            topic = infer_topic_from_papers(parsed, "Uploaded papers")
+            constraints = {"budget": budget, "dataset_ready": True}
+            os.environ["EVP_LLM_MODE"] = llm_mode
+            save_uploaded_papers(uploads)
+            with status_placeholder:
+                with st.status("Running EVP pipeline", expanded=True) as status:
+                    status.write("LiteratureAgent scanning papers")
+                    status.write("HypothesisAgent drafting experiments")
+                    status.write("ResourceEstimatorAgent sizing compute")
+                    status.write("ImpactPredictorAgent scoring novelty")
+                    status.write("Scoring Engine ranking value")
+                    with st.spinner("Synthesizing experiments..."):
+                        st.session_state.results = run_async(
+                            run_pipeline(topic, goal, constraints)
+                        )
+                    status.update(state="complete", label="Pipeline complete")
 
-results = st.session_state.results
+    results = st.session_state.results
 
+    left, right = st.columns([0.68, 0.32])
 
-left, right = st.columns([0.68, 0.32])
-
-with right:
-    st.markdown("**Live Thought Stream**")
-    if results and results.get("memory"):
-        for item in results["memory"]:
-            agent = item.get("agent", "Agent")
-            payload = item.get("payload", {})
-            summary = summarize_payload(payload)
-            st.markdown(
-                f"""
+    with right:
+        st.markdown("**Live Thought Stream**")
+        if results and results.get("memory"):
+            for item in results["memory"]:
+                agent = item.get("agent", "Agent")
+                payload = item.get("payload", {})
+                summary = summarize_payload(payload)
+                st.markdown(
+                    f"""
 <div class="evp-thought">
   <div class="evp-mono" style="font-size:12px; color:#8bdcff;">{agent}</div>
   <div style="font-size:14px;">{summary}</div>
 </div>
 """,
-                unsafe_allow_html=True,
-            )
-    else:
-        st.markdown(
-            """
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.markdown(
+                """
 <div class="evp-thought">
   <div class="evp-mono" style="font-size:12px; color:#8bdcff;">LiteratureAgent</div>
   <div style="font-size:14px;">Awaiting input. Ready to scan the field.</div>
@@ -285,30 +355,32 @@ with right:
   <div style="font-size:14px;">Scorecards will appear here after a run.</div>
 </div>
 """,
-            unsafe_allow_html=True,
-        )
+                unsafe_allow_html=True,
+            )
 
-with left:
-    st.markdown("**Experiment Intelligence**")
+    with left:
+        st.markdown("**Experiment Intelligence**")
 
-    if results:
-        experiments: List[Dict[str, Any]] = results.get("experiments", [])
-        recommended_id = results.get("recommended_experiment_id")
-        recommended = next((e for e in experiments if e.get("id") == recommended_id), None)
+        if results:
+            experiments: List[Dict[str, Any]] = results.get("experiments", [])
+            recommended_id = results.get("recommended_experiment_id")
+            recommended = next(
+                (e for e in experiments if e.get("id") == recommended_id), None
+            )
 
-        top_row = st.columns(3)
-        top_row[0].metric("Experiments Generated", len(experiments))
-        if recommended:
-            top_row[1].metric("Recommended", recommended.get("title", "Experiment"))
-            top_row[2].metric("Best Value", f"{recommended.get('value', 0):.2f}")
-        else:
-            top_row[1].metric("Recommended", "Pending")
-            top_row[2].metric("Best Value", "-")
+            top_row = st.columns(3)
+            top_row[0].metric("Experiments Generated", len(experiments))
+            if recommended:
+                top_row[1].metric("Recommended", recommended.get("title", "Experiment"))
+                top_row[2].metric("Best Value", f"{recommended.get('value', 0):.2f}")
+            else:
+                top_row[1].metric("Recommended", "Pending")
+                top_row[2].metric("Best Value", "-")
 
-        st.markdown("**Recommendation**")
-        if recommended:
-            st.markdown(
-                f"""
+            st.markdown("**Recommendation**")
+            if recommended:
+                st.markdown(
+                    f"""
 <div class="evp-card">
   <div class="evp-badge">Recommended</div>
   <h3>{recommended.get('title', 'Experiment')}</h3>
@@ -317,17 +389,21 @@ with left:
   <div class="evp-mono" style="font-size:13px;">Value score: {recommended.get('value', 0):.2f}</div>
 </div>
 """,
-                unsafe_allow_html=True,
-            )
-        else:
-            st.info("Run the pipeline to see the best experiment recommendation.")
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.info("Run the pipeline to see the best experiment recommendation.")
 
-        st.markdown("**Experiment Cards**")
-        for exp in experiments:
-            is_recommended = exp.get("id") == recommended_id
-            badge = "<span class=\"evp-badge\">Recommended</span>" if is_recommended else "<span class=\"evp-outline\">Candidate</span>"
-            st.markdown(
-                f"""
+            st.markdown("**Experiment Cards**")
+            for exp in experiments:
+                is_recommended = exp.get("id") == recommended_id
+                badge = (
+                    "<span class=\\\"evp-badge\\\">Recommended</span>"
+                    if is_recommended
+                    else "<span class=\\\"evp-outline\\\">Candidate</span>"
+                )
+                st.markdown(
+                    f"""
 <div class="evp-card">
   {badge}
   <h3>{exp.get('title', 'Experiment')}</h3>
@@ -337,57 +413,198 @@ with left:
   <div class="evp-mono" style="font-size:13px;">Novelty: {exp.get('impact_score', 0)} | Value: {exp.get('value', 0):.2f}</div>
 </div>
 """,
-                unsafe_allow_html=True,
-            )
-
-        st.markdown("**Value vs. Cost Quadrant**")
-        if experiments:
-            cost_values = [exp.get("resource_cost", 0) for exp in experiments]
-            impact_values = [exp.get("impact_score", 0) for exp in experiments]
-            labels = [exp.get("title", "Experiment") for exp in experiments]
-            colors = ["#27f4c0" if exp.get("id") == recommended_id else "#3ca1ff" for exp in experiments]
-
-            fig = go.Figure()
-            fig.add_trace(
-                go.Scatter(
-                    x=cost_values,
-                    y=impact_values,
-                    mode="markers+text",
-                    text=labels,
-                    textposition="top center",
-                    marker=dict(size=16, color=colors, line=dict(color="#07111f", width=2)),
-                    hovertemplate="Cost: %{x}<br>Impact: %{y}<extra></extra>",
-                )
-            )
-
-            if cost_values and impact_values:
-                fig.add_shape(
-                    type="line",
-                    x0=sum(cost_values) / len(cost_values),
-                    x1=sum(cost_values) / len(cost_values),
-                    y0=min(impact_values) - 1,
-                    y1=max(impact_values) + 1,
-                    line=dict(color="rgba(255,255,255,0.2)", dash="dash"),
-                )
-                fig.add_shape(
-                    type="line",
-                    x0=min(cost_values) - 0.5,
-                    x1=max(cost_values) + 0.5,
-                    y0=sum(impact_values) / len(impact_values),
-                    y1=sum(impact_values) / len(impact_values),
-                    line=dict(color="rgba(255,255,255,0.2)", dash="dash"),
+                    unsafe_allow_html=True,
                 )
 
-            fig.update_layout(
-                height=360,
-                margin=dict(l=20, r=20, t=30, b=30),
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                xaxis=dict(title="Resource Cost (Low to High)", tickmode="linear", dtick=1, range=[0.5, 3.5]),
-                yaxis=dict(title="Impact Score", range=[0, 11]),
-                font=dict(color="#e6eefc", family="Space Grotesk"),
-            )
+            st.markdown("**Value vs. Cost Quadrant**")
+            if experiments:
+                cost_values = [exp.get("resource_cost", 0) for exp in experiments]
+                impact_values = [exp.get("impact_score", 0) for exp in experiments]
+                labels = [exp.get("title", "Experiment") for exp in experiments]
+                colors = [
+                    "#27f4c0" if exp.get("id") == recommended_id else "#3ca1ff"
+                    for exp in experiments
+                ]
 
-            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+                fig = go.Figure()
+                fig.add_trace(
+                    go.Scatter(
+                        x=cost_values,
+                        y=impact_values,
+                        mode="markers+text",
+                        text=labels,
+                        textposition="top center",
+                        marker=dict(size=16, color=colors, line=dict(color="#07111f", width=2)),
+                        hovertemplate="Cost: %{x}<br>Impact: %{y}<extra></extra>",
+                    )
+                )
+
+                if cost_values and impact_values:
+                    fig.add_shape(
+                        type="line",
+                        x0=sum(cost_values) / len(cost_values),
+                        x1=sum(cost_values) / len(cost_values),
+                        y0=min(impact_values) - 1,
+                        y1=max(impact_values) + 1,
+                        line=dict(color="rgba(255,255,255,0.2)", dash="dash"),
+                    )
+                    fig.add_shape(
+                        type="line",
+                        x0=min(cost_values) - 0.5,
+                        x1=max(cost_values) + 0.5,
+                        y0=sum(impact_values) / len(impact_values),
+                        y1=sum(impact_values) / len(impact_values),
+                        line=dict(color="rgba(255,255,255,0.2)", dash="dash"),
+                    )
+
+                fig.update_layout(
+                    height=360,
+                    margin=dict(l=20, r=20, t=30, b=30),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    xaxis=dict(
+                        title="Resource Cost (Low to High)",
+                        tickmode="linear",
+                        dtick=1,
+                        range=[0.5, 3.5],
+                    ),
+                    yaxis=dict(title="Impact Score", range=[0, 11]),
+                    font=dict(color="#e6eefc", family="Space Grotesk"),
+                )
+
+                st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        else:
+            st.info("Enter a topic and run EVP to see ranked experiments, cost, and impact.")
+
+with tab_syntropy:
+    st.markdown("**Syntropy: Cross-Domain Research Catalyst**")
+    st.caption("Upload two papers from different fields to discover a bridge.")
+
+    with st.form("syntropy_form"):
+        upload_a = st.file_uploader(
+            "Upload paper for Domain A",
+            type=["txt", "md"],
+            accept_multiple_files=False,
+            key="syntropy_upload_a",
+        )
+        upload_b = st.file_uploader(
+            "Upload paper for Domain B",
+            type=["txt", "md"],
+            accept_multiple_files=False,
+            key="syntropy_upload_b",
+        )
+        similarity_threshold = st.slider(
+            "Similarity threshold",
+            min_value=0.3,
+            max_value=0.8,
+            value=0.5,
+            step=0.05,
+            key="syntropy_threshold",
+        )
+        with st.expander("Advanced", expanded=False):
+            syntropy_llm_mode = st.radio(
+                "Syntropy LLM Mode",
+                options=["openai", "mock"],
+                index=0,
+                horizontal=True,
+                key="syntropy_llm_mode",
+            )
+        syntropy_submit = st.form_submit_button("Run Syntropy")
+
+    if syntropy_submit:
+        if not upload_a or not upload_b:
+            st.warning("Upload one paper for each domain to run Syntropy.")
+        else:
+            papers_a = [parse_uploaded_paper(upload_a, "domain_a")]
+            papers_b = [parse_uploaded_paper(upload_b, "domain_b")]
+            topic_a = infer_topic_from_papers(papers_a, "Domain A")
+            topic_b = infer_topic_from_papers(papers_b, "Domain B")
+            os.environ["SYNTROPY_LLM_MODE"] = syntropy_llm_mode
+            inputs = {
+                "topic_a": topic_a,
+                "topic_b": topic_b,
+                "papers_a": papers_a,
+                "papers_b": papers_b,
+                "similarity_threshold": similarity_threshold,
+                "trace": [],
+            }
+            with syntropy_status_placeholder:
+                with st.status("Running Syntropy pipeline", expanded=True) as status:
+                    status.write("Archivist parsing uploads")
+                    status.write("Deconstructor extracting concepts")
+                    status.write("Connector mapping graph similarity")
+                    status.write("GrantWriter drafting proposal")
+                    with st.spinner("Synthesizing cross-domain bridge..."):
+                        st.session_state.syntropy_results = get_syntropy_app().invoke(
+                            inputs
+                        )
+                    status.update(state="complete", label="Syntropy complete")
+
+    syntropy_results = st.session_state.syntropy_results
+    st.markdown(
+        "Discover a shortest conceptual bridge between two scientific domains using graph theory."
+    )
+
+    if syntropy_results:
+        bridge_col, report_col = st.columns([0.42, 0.58])
+
+        with bridge_col:
+            st.markdown("**The Bridge**")
+            connection_path = syntropy_results.get("connection_path", []) or []
+            for idx, step in enumerate(connection_path, start=1):
+                st.markdown(f"**Step {idx}:** {step}")
+
+            summary = syntropy_results.get("graph_summary", {})
+            if summary:
+                st.caption(
+                    f"Graph nodes: {summary.get('nodes', 0)} | "
+                    f"edges: {summary.get('edges', 0)} | "
+                    f"threshold: {summary.get('threshold', '-')}"
+                )
+
+        with report_col:
+            st.markdown("**Research Proposal**")
+            st.markdown(syntropy_results.get("final_report", ""))
+
+        st.divider()
+        st.markdown("**Knowledge Graph Visualization**")
+        if agraph is None:
+            st.warning("Install streamlit-agraph to see the interactive graph.")
+        else:
+            nodes = []
+            edges = []
+            for i, step in enumerate(connection_path):
+                if i == 0:
+                    color = "#90EE90"
+                elif i == len(connection_path) - 1:
+                    color = "#87CEEB"
+                else:
+                    color = "#FFD700"
+                nodes.append(Node(id=str(i), label=step, size=25, color=color))
+                if i > 0:
+                    edges.append(Edge(source=str(i - 1), target=str(i), label="relates to"))
+
+            config = Config(width=800, height=400, directed=True)
+            agraph(nodes=nodes, edges=edges, config=config)
+
+        st.divider()
+        st.markdown("**Agent Trace**")
+        trace = syntropy_results.get("trace", []) or []
+        if trace:
+            for item in trace:
+                agent = item.get("agent", "Agent")
+                payload = item.get("payload", {})
+                summary = payload.get("note") or payload.get("source") or "Step complete"
+                st.markdown(
+                    f"""
+<div class="evp-thought">
+  <div class="evp-mono" style="font-size:12px; color:#8bdcff;">{agent}</div>
+  <div style="font-size:14px;">{summary}</div>
+</div>
+""",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("Trace will appear here after a Syntropy run.")
     else:
-        st.info("Enter a topic and run EVP to see ranked experiments, cost, and impact.")
+        st.info("Enter two domains and run Syntropy to see the bridge and proposal.")
