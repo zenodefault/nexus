@@ -1,3 +1,3 @@
 """EVP backend package."""
 
-__all__ = ["agents", "orchestration", "scoring", "utils"]
+__all__ = ["agents", "data", "orchestration", "scoring", "utils"]

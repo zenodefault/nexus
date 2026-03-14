@@ -15,7 +15,8 @@ class LiteratureAgent(BaseAgent):
     )
 
     def run_with_context(self, context: RunContext) -> Dict:
-        payload = self.run_sync(f"Topic: {context.topic}. Goal: {context.goal}.")
+        digest = context.constraints.get("literature_digest", "No paper context available.")
+        payload = self.run_sync(f"Topic: {context.topic}. Goal: {context.goal}. {digest}")
         require_fields(payload, ["summary", "key_findings", "limitations", "hypotheses"], "LiteratureAgent")
         context.add_memory("LiteratureAgent", payload)
         return payload

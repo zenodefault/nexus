@@ -28,4 +28,5 @@ class BaseAgent:
         return safe_json_loads(raw)
 
     async def run(self, context_text: str) -> Dict[str, Any]:
-        return await asyncio.to_thread(self.run_sync, context_text)
+        await asyncio.sleep(0)
+        return self.run_sync(context_text)
