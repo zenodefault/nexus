@@ -2,10 +2,8 @@
 arxiv>=2.1.0
 
 # Agent orchestration stack (Member A)
-# NOTE: CrewAI is intentionally excluded from base install because:
-# 1) it does not currently support Python 3.14
-# 2) some package indexes expose only older CrewAI builds
-# Install separately in a Python 3.10-3.13 environment when needed.
+# CrewAI is only installed on supported Python versions.
+crewai>=1.0.0; python_version < "3.14"
 langchain>=0.3.0
 
 # Frontend/demo stack (Member C)
