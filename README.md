@@ -25,18 +25,27 @@ Instead of only automating experiment execution, EVP prioritizes experiments by 
 - `evp/utils/llm.py`: mock/local (ACPX CLI) LLM clients.
 - `tests/`: scoring, pipeline, and integration tests.
 
-## Installation
+## Setup and Installation
 
 ```bash
+git clone <your-repo-url>
+cd nexus
 python -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install pytest arxiv
+pip install -r requirements.txt
 ```
 
-## Usage
+## Run the Project
 
-### 1) Mock mode (fast, no credits)
+### 1) Activate environment
+
+```bash
+cd nexus
+source .venv/bin/activate
+```
+
+### 2) Mock mode (fast, no credits)
 
 ```bash
 export EVP_LLM_MODE=mock
@@ -51,21 +60,37 @@ for e in result["experiments"]:
 PY
 ```
 
-### 2) Static mock mode (frontend/demo snapshots)
+### 3) Static mock mode (frontend/demo snapshots)
 
 Returns hardcoded deterministic JSON and bypasses agent calls.
 
 ```bash
 export EVP_LLM_MODE=mock_static
+python - <<'PY'
+import asyncio
+from evp.orchestration.pipeline import run_pipeline
+
+result = asyncio.run(run_pipeline(topic="Brain MRI", goal="Improve classification accuracy"))
+print(result["recommended_experiment_id"])
+for e in result["experiments"]:
+    print(e["id"], e["compute_units"], e["novelty_score"], round(e["value"], 2))
+PY
 ```
 
-### 3) Local ACPX CLI mode (Gemini/Qwen via ACPX)
+### 4) Local ACPX CLI mode (Gemini/Qwen via ACPX)
 
 ```bash
 export EVP_LLM_MODE=local
 export EVP_LOCAL_MODEL=gemini
 export EVP_ACPX_CMD='acpx run --model {model}'
 export EVP_ACPX_TIMEOUT_SECONDS=120
+python - <<'PY'
+import asyncio
+from evp.orchestration.pipeline import run_pipeline
+
+result = asyncio.run(run_pipeline(topic="Brain MRI", goal="Improve classification accuracy"))
+print(result["recommended_experiment_id"])
+PY
 ```
 
 `LocalLLMClient` sends prompts via stdin to the configured ACPX command and parses JSON from CLI output.
@@ -102,6 +127,12 @@ This shape is intended for Streamlit/API consumers.
 
 ```bash
 pytest -q
+```
+
+If `pytest` is not found:
+
+```bash
+python -m pytest -q
 ```
 
 ## Architecture Diagram (Text)
