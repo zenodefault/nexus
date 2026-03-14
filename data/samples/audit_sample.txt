@@ -1,0 +1,20 @@
+Title: Fast Vision Transformer for Low-Data Settings
+Authors: Sample Team
+
+Abstract
+We propose a compact vision transformer for low-data classification. On a 10-class dataset,
+our method improves accuracy from 78.0% to 92.0% while reducing training time by 30%.
+We also report a 0.12 decrease in calibration error compared to the baseline.
+
+Methods
+We train a 6-layer transformer with patch size 8 and use strong augmentation. The baseline
+is a small CNN with the same parameter count. We evaluate for 50 epochs with early stopping.
+
+Results
+Accuracy (top-1) baseline: 78.0%
+Accuracy (top-1) proposed: 89.0%
+Training time reduction: 25%
+Calibration error reduction: 0.05
+
+Conclusion
+The proposed model improves accuracy and reduces training time under small data regimes.

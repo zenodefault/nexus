@@ -165,14 +165,26 @@ div[data-testid="stMetric"] {
 div[data-baseweb="select"] > div,
 div[data-baseweb="input"] > div,
 div[data-baseweb="textarea"] > div {
-  background: rgba(7, 13, 24, 0.82) !important;
-  border-color: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(255, 248, 238, 0.92) !important;
+  border-color: rgba(120, 93, 66, 0.28) !important;
+  color: var(--ink) !important;
+}
+
+div[data-baseweb="input"] input,
+div[data-baseweb="textarea"] textarea,
+div[data-baseweb="select"] input {
+  color: var(--ink) !important;
+}
+
+div[data-baseweb="input"] input::placeholder,
+div[data-baseweb="textarea"] textarea::placeholder {
+  color: rgba(109, 91, 77, 0.7) !important;
 }
 
 [data-testid="stFileUploader"] {
   border: 1px dashed rgba(140, 112, 86, 0.55);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 250, 244, 0.7);
   padding: 8px;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -568,6 +580,27 @@ def _evp_view():
             )
             st.plotly_chart(fig, use_container_width=True)
 
+            bar_fig = go.Figure(
+                data=[
+                    go.Bar(
+                        x=[e.get("id", "exp") for e in experiments],
+                        y=[e.get("value", 0) for e in experiments],
+                        marker_color=[
+                            "#b98b5e" if e.get("id") == rec_id else "#8a6a4b"
+                            for e in experiments
+                        ],
+                    )
+                ]
+            )
+            bar_fig.update_layout(
+                title="Value by Experiment",
+                height=280,
+                margin=dict(l=20, r=20, t=45, b=20),
+                xaxis_title="Experiment",
+                yaxis_title="Value",
+            )
+            st.plotly_chart(bar_fig, use_container_width=True)
+
             st.dataframe(
                 [
                     {
@@ -587,7 +620,7 @@ def _evp_view():
 def _syntropy_view():
     _feature_header(
         "Syntropy - Cross-Domain Bridge",
-        "Upload two files/datasets. Syntropy will infer a conceptual bridge between them.",
+        "Upload two files/datasets. Syntropy will extract methods/results and infer a conceptual bridge.",
     )
 
     if "syntropy_result" not in st.session_state:
@@ -656,15 +689,52 @@ def _syntropy_view():
         path = result.get("connection_path", [])
         report = result.get("final_report", "")
         summary = result.get("graph_summary", {})
+        methods_a = result.get("methods_a", [])
+        methods_b = result.get("methods_b", [])
+        results_a = result.get("results_a", [])
+        results_b = result.get("results_b", [])
 
         st.markdown("**Connection Path**")
         st.write(" -> ".join(path) if path else "No path generated")
+
+        if summary:
+            summary_fig = go.Figure(
+                data=[
+                    go.Bar(
+                        x=["Nodes", "Edges", "Threshold"],
+                        y=[
+                            summary.get("nodes", 0),
+                            summary.get("edges", 0),
+                            summary.get("threshold", 0),
+                        ],
+                        marker_color=["#b98b5e", "#8a6a4b", "#d4b48d"],
+                    )
+                ]
+            )
+            summary_fig.update_layout(
+                title="Graph Summary",
+                height=260,
+                margin=dict(l=20, r=20, t=45, b=20),
+                yaxis_title="Value",
+            )
+            st.plotly_chart(summary_fig, use_container_width=True)
 
         if summary:
             row = st.columns(3)
             row[0].metric("Nodes", summary.get("nodes", 0))
             row[1].metric("Edges", summary.get("edges", 0))
             row[2].metric("Threshold", summary.get("threshold", "-"))
+
+        if methods_a or methods_b or results_a or results_b:
+            with st.expander("Extracted Methods & Results"):
+                st.markdown("**Domain A Methods**")
+                st.write(methods_a or "No methods extracted.")
+                st.markdown("**Domain A Results**")
+                st.write(results_a or "No results extracted.")
+                st.markdown("**Domain B Methods**")
+                st.write(methods_b or "No methods extracted.")
+                st.markdown("**Domain B Results**")
+                st.write(results_b or "No results extracted.")
 
         st.markdown("**Future Opportunity Report**")
         st.write(report or "No report generated")
@@ -740,6 +810,31 @@ def _paper_lab_view():
             st.info("Graph appears here.")
         else:
             _render_lab_bridge_graph(bridge)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown('<div class="section-shell">', unsafe_allow_html=True)
+        st.markdown("**Extracted Metrics**")
+        deconstruction = st.session_state.lab_deconstruction
+        if deconstruction and deconstruction.results_metrics:
+            metrics_fig = go.Figure(
+                data=[
+                    go.Bar(
+                        x=[f"Metric {i + 1}" for i in range(len(deconstruction.results_metrics))],
+                        y=deconstruction.results_metrics,
+                        marker_color="#8a6a4b",
+                    )
+                ]
+            )
+            metrics_fig.update_layout(
+                title="Results Metrics",
+                height=260,
+                margin=dict(l=20, r=20, t=45, b=20),
+                xaxis_title="Metric",
+                yaxis_title="Value",
+            )
+            st.plotly_chart(metrics_fig, use_container_width=True)
+        else:
+            st.info("No numeric results metrics were extracted.")
         st.markdown("</div>", unsafe_allow_html=True)
 
     with c3:

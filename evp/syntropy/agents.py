@@ -10,6 +10,8 @@ from sentence_transformers import SentenceTransformer, util
 
 from evp.data.arxiv import fetch_papers
 from evp.data.local import load_local_papers
+from evp.data.pubmed import fetch_pubmed_papers
+from evp.data.serper import fetch_serper_scholar
 from evp.syntropy.state import GraphState
 
 try:
@@ -22,10 +24,11 @@ _EMBEDDER: SentenceTransformer | None = None
 _LLM = None
 
 
-class PaperConcepts(BaseModel):
-    concepts: List[str] = Field(
-        description="Key scientific methods, algorithms, or concepts mentioned"
+class PaperMethodResults(BaseModel):
+    methodology: List[str] = Field(
+        description="Core methods, algorithms, or procedures (short phrases)"
     )
+    results: List[str] = Field(description="Key results or outcomes (short phrases)")
 
 
 def _with_trace(state: GraphState, agent: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -124,6 +127,47 @@ def _extract_concepts_heuristic(text: str, max_concepts: int = 10) -> List[str]:
     return concepts
 
 
+def _extract_method_results_heuristic(text: str, max_items: int = 6) -> tuple[List[str], List[str]]:
+    if not text:
+        return [], []
+
+    sentences = re.split(r"(?<=[.!?])\\s+", text)
+    method_markers = (
+        "method",
+        "approach",
+        "we propose",
+        "we present",
+        "we use",
+        "we train",
+        "architecture",
+        "algorithm",
+        "model",
+        "framework",
+    )
+    result_markers = (
+        "result",
+        "improve",
+        "increase",
+        "outperform",
+        "accuracy",
+        "achieve",
+        "%",
+        "reduce",
+        "reduction",
+        "performance",
+    )
+
+    methods = [s.strip() for s in sentences if any(k in s.lower() for k in method_markers)]
+    results = [s.strip() for s in sentences if any(k in s.lower() for k in result_markers)]
+
+    if not methods:
+        methods = _extract_concepts_heuristic(text, max_concepts=max_items)
+    if not results:
+        results = [s.strip() for s in sentences if any(ch.isdigit() for ch in s)]
+
+    return methods[:max_items], results[:max_items]
+
+
 def _extract_text(papers: List[Dict[str, Any]]) -> str:
     parts = []
     for paper in papers:
@@ -135,6 +179,20 @@ def _extract_text(papers: List[Dict[str, Any]]) -> str:
             else:
                 parts.append(summary)
     return "\n".join(parts)
+
+
+def _dedupe_papers(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = set()
+    out = []
+    for paper in papers:
+        key = (paper.get("title") or "").strip().lower()
+        if not key:
+            key = (paper.get("url") or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(paper)
+    return out
 
 
 def archivist_agent(state: GraphState) -> Dict[str, Any]:
@@ -162,9 +220,37 @@ def archivist_agent(state: GraphState) -> Dict[str, Any]:
             }
             return _with_trace(state, "Archivist", payload)
 
-    papers_a = fetch_papers(topic_a, max_results=max_results) if topic_a else []
-    papers_b = fetch_papers(topic_b, max_results=max_results) if topic_b else []
-    payload = {"papers_a": papers_a, "papers_b": papers_b, "source": "arxiv"}
+    use_pubmed = os.getenv("SYNTROPY_USE_PUBMED", "true").lower() == "true"
+    use_scholar = os.getenv("SYNTROPY_USE_SCHOLAR", "false").lower() == "true"
+    pubmed_email = os.getenv("SYNTROPY_PUBMED_EMAIL") or os.getenv("NCBI_EMAIL")
+    pubmed_key = os.getenv("SYNTROPY_PUBMED_API_KEY") or os.getenv("NCBI_API_KEY")
+
+    papers_a = []
+    papers_b = []
+    if topic_a:
+        papers_a.extend(fetch_papers(topic_a, max_results=max_results))
+        if use_pubmed:
+            papers_a.extend(
+                fetch_pubmed_papers(
+                    topic_a, max_results=max_results, email=pubmed_email, api_key=pubmed_key
+                )
+            )
+        if use_scholar:
+            papers_a.extend(fetch_serper_scholar(topic_a, max_results=max_results))
+    if topic_b:
+        papers_b.extend(fetch_papers(topic_b, max_results=max_results))
+        if use_pubmed:
+            papers_b.extend(
+                fetch_pubmed_papers(
+                    topic_b, max_results=max_results, email=pubmed_email, api_key=pubmed_key
+                )
+            )
+        if use_scholar:
+            papers_b.extend(fetch_serper_scholar(topic_b, max_results=max_results))
+
+    papers_a = _dedupe_papers(papers_a)
+    papers_b = _dedupe_papers(papers_b)
+    payload = {"papers_a": papers_a, "papers_b": papers_b, "source": "mixed"}
     return _with_trace(state, "Archivist", payload)
 
 
@@ -174,28 +260,46 @@ def deconstructor_agent(state: GraphState) -> Dict[str, Any]:
 
     llm = _get_llm()
     if llm is None:
-        concepts_a = _extract_concepts_heuristic(text_a)
-        concepts_b = _extract_concepts_heuristic(text_b)
+        methods_a, results_a = _extract_method_results_heuristic(text_a)
+        methods_b, results_b = _extract_method_results_heuristic(text_b)
         payload = {
-            "concepts_a": concepts_a,
-            "concepts_b": concepts_b,
-            "note": "heuristic",
+            "concepts_a": methods_a,
+            "concepts_b": methods_b,
+            "methods_a": methods_a,
+            "methods_b": methods_b,
+            "results_a": results_a,
+            "results_b": results_b,
+            "note": "heuristic-method-results",
         }
         return _with_trace(state, "Deconstructor", payload)
 
-    structured_llm = llm.with_structured_output(PaperConcepts)
+    structured_llm = llm.with_structured_output(PaperMethodResults)
 
     res_a = structured_llm.invoke(
-        f"Extract key scientific methods and concepts from this text:\n{text_a}"
+        "Extract only the methodology and results from this text. "
+        "Return short phrases, ignore background or fluff.\n"
+        + text_a
     )
     res_b = structured_llm.invoke(
-        f"Extract key scientific methods and concepts from this text:\n{text_b}"
+        "Extract only the methodology and results from this text. "
+        "Return short phrases, ignore background or fluff.\n"
+        + text_b
     )
 
-    concepts_a = [c.strip() for c in res_a.concepts if c.strip()]
-    concepts_b = [c.strip() for c in res_b.concepts if c.strip()]
+    methods_a = [c.strip() for c in res_a.methodology if c.strip()]
+    results_a = [c.strip() for c in res_a.results if c.strip()]
+    methods_b = [c.strip() for c in res_b.methodology if c.strip()]
+    results_b = [c.strip() for c in res_b.results if c.strip()]
 
-    payload = {"concepts_a": concepts_a, "concepts_b": concepts_b, "note": "llm"}
+    payload = {
+        "concepts_a": methods_a,
+        "concepts_b": methods_b,
+        "methods_a": methods_a,
+        "methods_b": methods_b,
+        "results_a": results_a,
+        "results_b": results_b,
+        "note": "llm-method-results",
+    }
     return _with_trace(state, "Deconstructor", payload)
 
 

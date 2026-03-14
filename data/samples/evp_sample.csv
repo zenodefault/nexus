@@ -1,0 +1,6 @@
+experiment_id,model,params_m,train_hours,baseline_accuracy,new_accuracy,notes
+exp_001,small_cnn,4.2,6,0.88,0.90,light aug + lr schedule
+exp_002,small_cnn,4.2,8,0.88,0.91,add mixup
+exp_003,small_cnn,4.2,5,0.88,0.895,replace batchnorm with groupnorm
+exp_004,small_cnn,4.2,10,0.88,0.915,add contrastive pretrain
+exp_005,small_cnn,4.2,7,0.88,0.905,freeze stem layers

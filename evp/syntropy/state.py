@@ -9,6 +9,10 @@ class GraphState(TypedDict, total=False):
     papers_b: List[Dict[str, Any]]
     concepts_a: List[str]
     concepts_b: List[str]
+    methods_a: List[str]
+    methods_b: List[str]
+    results_a: List[str]
+    results_b: List[str]
     connection_path: List[str]
     final_report: str
     trace: List[Dict[str, Any]]

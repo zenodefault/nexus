@@ -1,0 +1,11 @@
+Title: evp_sample
+Authors: User Upload
+
+CSV dataset summary:
+Columns (7): experiment_id, model, params_m, train_hours, baseline_accuracy, new_accuracy, notes
+Rows: 5
+Numeric columns (from sample): params_m (min=4.2, max=4.2, mean=4.2, n=5); train_hours (min=5, max=10, mean=7.2, n=5); baseline_accuracy (min=0.88, max=0.88, mean=0.88, n=5); new_accuracy (min=0.895, max=0.915, mean=0.905, n=5)
+Sample rows:
+{"experiment_id": "exp_001", "model": "small_cnn", "params_m": "4.2", "train_hours": "6", "baseline_accuracy": "0.88", "new_accuracy": "0.90", "notes": "light aug + lr schedule"}
+{"experiment_id": "exp_002", "model": "small_cnn", "params_m": "4.2", "train_hours": "8", "baseline_accuracy": "0.88", "new_accuracy": "0.91", "notes": "add mixup"}
+{"experiment_id": "exp_003", "model": "small_cnn", "params_m": "4.2", "train_hours": "5", "baseline_accuracy": "0.88", "new_accuracy": "0.895", "notes": "replace batchnorm with groupnorm"}

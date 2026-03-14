@@ -1,31 +1,21 @@
 # Experiment Value Predictor (EVP)
 
-EVP is an **AI Research Decision Engine** that helps teams decide **which experiment is worth running before spending compute**.
+EVP is an **AI Research Decision Engine** that helps teams choose **which experiment to run first** by balancing expected impact against resource cost.
 
-Instead of only automating experiment execution, EVP prioritizes experiments by expected impact vs. resource cost.
+Instead of just automating experiments, EVP ranks candidates and returns a recommendation you can act on.
+
+## What You Can Do
+
+- Generate and rank experiment ideas from a topic + goal.
+- Estimate compute cost and expected impact with agent heuristics or LLMs.
+- Run a Streamlit lab for PDF audit, knowledge bridging, and extracted data.
+- Use mock or static modes for fast demos and tests.
 
 ## Core Workflow
 
 `literature -> hypotheses -> resource estimate + impact estimate -> value scoring -> recommendation`
 
-## Architecture (Hackathon)
-
-- `LiteratureAgent`: summarizes findings/limitations from paper context.
-- `HypothesisAgent`: generates candidate experiments.
-- `ResourceEstimatorAgent`: estimates compute units (`Low|Medium|High`) with heuristic fallback.
-- `ImpactPredictorAgent`: predicts novelty and expected gain.
-- `Scoring Engine`: ranks experiments by value and returns the best next experiment.
-
-## Project Structure
-
-- `evp/agents/`: agent definitions.
-- `evp/data/arxiv.py`: arXiv ingestion and parsing.
-- `evp/orchestration/pipeline.py`: async orchestration and end-to-end pipeline.
-- `evp/scoring/scoring.py`: value score computation and ranking.
-- `evp/utils/llm.py`: mock/local (ACPX CLI) LLM clients.
-- `tests/`: scoring, pipeline, and integration tests.
-
-## Setup and Installation
+## Quickstart
 
 ```bash
 git clone <your-repo-url>
@@ -38,52 +28,24 @@ pip install -r requirements.txt
 
 ### CrewAI note
 
-`crewai` is not in base requirements because it needs Python `<3.14`.
-If you need CrewAI, create a Python 3.11 or 3.12 virtualenv and install it separately:
+`crewai` installs only on Python `<3.14` (per `requirements.txt`). If you are on Python 3.14+, it will be skipped. Use Python 3.11 or 3.12 if you need CrewAI specifically.
 
-```bash
-python3.11 -m venv .venv311
-source .venv311/bin/activate
-pip install -U pip
-pip install crewai
-```
-
-## Run the Project
-
-### 1) Activate environment
-
-```bash
-cd nexus
-source .venv/bin/activate
-```
-
-### 2) Launch the Laboratory UI (PDF Audit + Bridge)
+## Run the Streamlit Lab
 
 ```bash
 streamlit run app.py
 ```
 
-This app now implements:
+The UI includes:
 
-- PDF upload ingestion (`.pdf`) using Streamlit uploader
-- PDF-to-text conversion via PyMuPDF (`fitz`)
-- Structured deconstruction with Pydantic schema:
-  - `abstract_summary`
-  - `methodology_description`
-  - `results_metrics`
-  - `conclusion`
-- Ghost Inspector consistency report JSON:
-  - `is_consistent`
-  - `discrepancies`
-  - `verdict`
-- Knowledge bridge graph generation with NetworkX + sentence-transformers
-- Graph visualization via `streamlit-agraph`
-- Tabs:
-  - `📊 Paper Audit`
-  - `🕸️ Knowledge Bridge`
-  - `🧩 Extracted Data`
+- Paper Audit Lab (PDF upload, extraction, audit report)
+- Knowledge Bridge graph
+- Syntropy cross-domain bridge
+- Extracted JSON views
 
-### 3) Mock mode (fast, no credits)
+## Run the Pipeline (CLI)
+
+### Mock mode (fast, no external calls)
 
 ```bash
 export EVP_LLM_MODE=mock
@@ -98,9 +60,7 @@ for e in result["experiments"]:
 PY
 ```
 
-### 4) Static mock mode (frontend/demo snapshots)
-
-Returns hardcoded deterministic JSON and bypasses agent calls.
+### Static mock mode (deterministic JSON for UI/demo snapshots)
 
 ```bash
 export EVP_LLM_MODE=mock_static
@@ -115,7 +75,7 @@ for e in result["experiments"]:
 PY
 ```
 
-### 5) Local ACPX CLI mode (Gemini/Qwen via ACPX)
+### Local ACPX CLI mode (Gemini/Qwen via ACPX)
 
 ```bash
 export EVP_LLM_MODE=local
@@ -131,46 +91,49 @@ print(result["recommended_experiment_id"])
 PY
 ```
 
-`LocalLLMClient` sends prompts via stdin to the configured ACPX command and parses JSON from CLI output.
-
-## Syntropy (Cross-Domain Research Catalyst)
-
-Syntropy discovers bridges between two scientific domains by building a concept graph
-and finding shortest paths across it. Launch the Streamlit UI and open the **Syntropy**
-tab.
+### OpenAI mode (LangChain)
 
 ```bash
-streamlit run app.py
+export EVP_LLM_MODE=openai
+export EVP_OPENAI_MODEL=gpt-4o
+export OPENAI_API_KEY=...
+python - <<'PY'
+import asyncio
+from evp.orchestration.pipeline import run_pipeline
+
+result = asyncio.run(run_pipeline(topic="Brain MRI", goal="Improve classification accuracy"))
+print(result["recommended_experiment_id"])
+PY
 ```
+
+## Syntropy (Cross-Domain Research Bridge)
+
+Syntropy builds a concept graph across two domains and surfaces candidate bridges.
+In the UI, open the **Syntropy** section and provide two files/datasets.
 
 ### Syntropy Environment Controls
 
 - `SYNTROPY_LLM_MODE=mock|openai` (default `openai`)
-- `SYNTROPY_MODEL=gpt-4o` (used when `openai` mode is active)
-- `OPENAI_API_KEY=...` (required for `openai` mode)
+- `SYNTROPY_MODEL=gpt-4o`
+- `OPENAI_API_KEY=...` (required for `openai`)
 - `SYNTROPY_EMBEDDINGS_MODEL=all-MiniLM-L6-v2`
 - `SYNTROPY_LOCAL_PAPERS_DIR=data/papers`
+- `SYNTROPY_USE_PUBMED=true|false`
+- `SYNTROPY_USE_SCHOLAR=true|false`
+- `SYNTROPY_PUBMED_EMAIL` / `NCBI_EMAIL`
+- `SYNTROPY_PUBMED_API_KEY` / `NCBI_API_KEY`
+- `SERPER_API_KEY` (for Google Scholar via Serper)
 
-## arXiv Integration
+## Data Sources
 
-`evp/data/arxiv.py` exposes:
+EVP and Syntropy can draw from:
 
-- `fetch_papers(query)`: retrieves papers via `arxiv` Python library.
-- `extract_abstracts(papers)`: prepares bounded abstract snippets.
-- `build_literature_digest(papers)`: compact context string for agent prompts.
+- Local papers (`data/papers`) - takes priority when present
+- arXiv (default for EVP)
+- PubMed (optional for Syntropy)
+- Google Scholar via Serper (optional for Syntropy)
 
-Reliability features:
-
-- retry loop for transient failures/rate-limit style errors,
-- graceful fallback to empty list if arXiv is unavailable,
-- text normalization before passing to agents.
-
-## Local Papers (Optional)
-
-If you want to use your own paper summaries instead of arXiv, drop `.txt` or `.md` files into `data/papers/`.
-Local files take priority over arXiv.
-
-Format options:
+### Local Papers Format
 
 ```text
 Title: My Paper Title
@@ -195,11 +158,21 @@ export EVP_LOCAL_PAPERS_DIR=data/papers
 - `literature`
 - `papers`
 - `hypotheses`
-- `experiments` (ranked with `value`)
+- `experiments` (ranked by `value`)
 - `recommended_experiment_id`
 - `memory`
 
-This shape is intended for Streamlit/API consumers.
+## Project Structure
+
+- `app.py`: Streamlit UI
+- `evp/agents/`: agent definitions
+- `evp/orchestration/pipeline.py`: async orchestration
+- `evp/scoring/scoring.py`: value scoring
+- `evp/lab/`: paper audit + knowledge bridge
+- `evp/syntropy/`: cross-domain bridge
+- `evp/data/`: arXiv, PubMed, Serper, and local loaders
+- `evp/utils/`: LLM clients, schemas, heuristics, logging
+- `tests/`: unit + integration tests
 
 ## Testing
 
@@ -213,21 +186,12 @@ If `pytest` is not found:
 python -m pytest -q
 ```
 
-## Architecture Diagram (Text)
+## Architecture (Text)
 
-1. User inputs topic + goal (+ optional budget constraints).
-2. Pipeline fetches paper context (mock or arXiv).
+1. User inputs topic + goal (+ optional constraints).
+2. Pipeline fetches paper context (local, mock, or arXiv).
 3. LiteratureAgent summarizes and writes memory.
 4. HypothesisAgent generates experiment candidates.
-5. For each experiment, ResourceEstimator and ImpactPredictor run in parallel.
+5. ResourceEstimator and ImpactPredictor run in parallel for each experiment.
 6. Scoring engine computes value and ranks experiments.
 7. Frontend consumes ranked JSON and highlights recommendation.
-
-## Technical Complexity (for Presentation)
-
-- Multi-agent orchestration with shared memory context.
-- Asynchronous enrichment across per-experiment agent calls.
-- Hybrid estimation strategy (LLM + deterministic heuristics fallback).
-- External research ingestion and preprocessing through arXiv.
-- Deterministic mock/static modes for fast demo reliability.
-- ACPX CLI integration path for local model/provider switching.
