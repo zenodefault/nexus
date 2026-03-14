@@ -36,16 +36,43 @@ class LocalLLMClient(LLMClient):
                 check=False,
             )
         except (OSError, subprocess.SubprocessError):
-            return "{\"note\": \"ACPX invocation failed.\"}"
+            return _fallback_openai(prompt, "ACPX invocation failed.")
 
         if proc.returncode != 0:
             err = proc.stderr.strip() or "unknown ACPX CLI error"
-            return json.dumps({"note": f"ACPX CLI failed: {err}"})
+            return _fallback_openai(prompt, f"ACPX CLI failed: {err}")
 
         output = proc.stdout.strip()
         if output:
             return _extract_json_from_text(output)
         return "{\"note\": \"ACPX returned empty output.\"}"
+
+
+class OpenAILLMClient(LLMClient):
+    """OpenAI-backed LLM client via LangChain."""
+
+    def __init__(self) -> None:
+        self.model = os.getenv("EVP_OPENAI_MODEL", "gpt-4o")
+
+    def generate(self, prompt: str) -> str:
+        if not os.getenv("OPENAI_API_KEY"):
+            return json.dumps({"note": "OPENAI_API_KEY not set."})
+
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError:
+            return json.dumps({"note": "langchain_openai not installed."})
+
+        try:
+            llm = ChatOpenAI(model=self.model, temperature=0)
+            res = llm.invoke(prompt)
+        except Exception as exc:  # pragma: no cover - network/SDK errors
+            return json.dumps({"note": f"OpenAI call failed: {exc}"})
+
+        content = getattr(res, "content", "") or str(res)
+        if content:
+            return _extract_json_from_text(content)
+        return json.dumps({"note": "OpenAI returned empty output."})
 
 
 class MockLLMClient(LLMClient):
@@ -125,3 +152,9 @@ def _extract_json_from_text(text: str) -> str:
     if start != -1 and end != -1 and start < end:
         return text[start : end + 1]
     return text
+
+
+def _fallback_openai(prompt: str, reason: str) -> str:
+    if os.getenv("OPENAI_API_KEY"):
+        return OpenAILLMClient().generate(prompt)
+    return json.dumps({"note": reason})

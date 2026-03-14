@@ -1,0 +1,11 @@
+Title: mock_paper
+Authors: User Upload
+
+Title: Lightweight MRI Classification with Efficient CNNs
+Authors: A. Patel, B. Kim, C. Lopez
+
+We study brain MRI classification using compact CNN architectures designed for low compute settings.
+The approach uses transfer learning on a small labeled dataset and applies aggressive data augmentation.
+Key results show a 2-3% accuracy improvement over a standard baseline with reduced training time.
+Limitations include sensitivity to preprocessing and limited generalization to rare tumor classes.
+We suggest exploring contrastive pretraining and multi-scale feature fusion for further gains.

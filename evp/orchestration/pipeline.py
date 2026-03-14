@@ -10,7 +10,7 @@ from evp.data.arxiv import build_literature_digest, fetch_papers
 from evp.data.local import load_local_papers
 from evp.scoring.scoring import score_experiments
 from evp.utils.context import RunContext
-from evp.utils.llm import LocalLLMClient, MockLLMClient
+from evp.utils.llm import LocalLLMClient, MockLLMClient, OpenAILLMClient
 from evp.utils.logging_utils import get_logger
 
 
@@ -20,6 +20,8 @@ def _current_mode() -> str:
 
 def get_llm_client():
     mode = _current_mode()
+    if mode == "openai":
+        return OpenAILLMClient()
     if mode == "local":
         return LocalLLMClient()
     return MockLLMClient()
@@ -68,7 +70,12 @@ async def run_pipeline(topic: str, goal: str, constraints: Dict | None = None) -
 
     papers = _load_papers_for_context(topic, mode, logger)
     context.constraints["papers"] = papers
-    context.constraints["literature_digest"] = build_literature_digest(papers)
+    literature_digest = build_literature_digest(papers)
+    dataset_profile = context.constraints.get("dataset_profile")
+    if dataset_profile:
+        literature_digest = f"{literature_digest}\n\nDataset profile:\n{dataset_profile}"
+        context.add_memory("DatasetProfile", {"profile": dataset_profile})
+    context.constraints["literature_digest"] = literature_digest
 
     llm = get_llm_client()
     agents = build_agents(llm)

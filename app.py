@@ -1,7 +1,10 @@
 import asyncio
+import csv
+import io
 import json
 import os
 import re
+from statistics import mean
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -222,11 +225,116 @@ def _ensure_dir(path: str) -> str:
     return path
 
 
+def _read_upload_bytes(uploaded_file) -> bytes:
+    if hasattr(uploaded_file, "getvalue"):
+        return uploaded_file.getvalue() or b""
+    return uploaded_file.read() or b""
+
+
+def _summarize_csv_text(raw_text: str, max_rows: int = 2000, sample_rows: int = 3) -> str:
+    reader = csv.reader(io.StringIO(raw_text))
+    try:
+        header = next(reader)
+    except StopIteration:
+        return "CSV file appears empty."
+    data_rows = []
+    truncated = False
+    for idx, row in enumerate(reader, start=1):
+        if idx > max_rows:
+            truncated = True
+            break
+        data_rows.append(row)
+
+    if not header:
+        header = [f"col_{i+1}" for i in range(len(data_rows[0]))] if data_rows else []
+
+    col_count = len(header)
+    row_count = len(data_rows)
+
+    numeric_stats = []
+    for idx in range(col_count):
+        values = []
+        for row in data_rows:
+            if idx >= len(row):
+                continue
+            try:
+                values.append(float(row[idx]))
+            except ValueError:
+                continue
+        if values:
+            numeric_stats.append(
+                f"{header[idx]} (min={min(values):.3g}, max={max(values):.3g}, mean={mean(values):.3g}, n={len(values)})"
+            )
+
+    samples = []
+    for row in data_rows[:sample_rows]:
+        row_map = {header[i]: row[i] if i < len(row) else "" for i in range(col_count)}
+        samples.append(row_map)
+
+    lines = [
+        "CSV dataset summary:",
+        f"Columns ({col_count}): {', '.join(header)}",
+        f"Rows: {row_count}" + (" (sampled)" if truncated else ""),
+    ]
+    if numeric_stats:
+        lines.append("Numeric columns (from sample): " + "; ".join(numeric_stats))
+    if samples:
+        lines.append("Sample rows:")
+        lines.extend([json.dumps(sample, ensure_ascii=True) for sample in samples])
+    return "\n".join(lines)
+
+
+def _summarize_json_text(raw_text: str, sample_rows: int = 3) -> str:
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return "JSON file could not be parsed."
+
+    if isinstance(payload, list):
+        total = len(payload)
+        if payload and isinstance(payload[0], dict):
+            keys = sorted({k for item in payload if isinstance(item, dict) for k in item.keys()})
+            samples = [payload[i] for i in range(min(sample_rows, total))]
+            lines = [
+                "JSON dataset summary:",
+                f"Records: {total}",
+                f"Keys: {', '.join(keys)}",
+                "Sample records:",
+            ]
+            lines.extend([json.dumps(sample, ensure_ascii=True) for sample in samples])
+            return "\n".join(lines)
+        return f"JSON list with {total} items. Sample: {json.dumps(payload[:sample_rows], ensure_ascii=True)}"
+
+    if isinstance(payload, dict):
+        keys = sorted(payload.keys())
+        lines = [
+            "JSON object summary:",
+            f"Keys: {', '.join(keys)}",
+            "Sample object:",
+            json.dumps({k: payload[k] for k in keys[:10]}, ensure_ascii=True),
+        ]
+        return "\n".join(lines)
+
+    return f"JSON payload type: {type(payload).__name__}"
+
+
 def _uploaded_file_to_text(uploaded_file) -> str:
     name = (uploaded_file.name or "file").lower()
-    raw = uploaded_file.read()
+    raw = _read_upload_bytes(uploaded_file)
     if name.endswith(".pdf"):
         return extract_pdf_text(raw)
+    if name.endswith(".csv"):
+        try:
+            text = raw.decode("utf-8", errors="ignore")
+            return _summarize_csv_text(text)
+        except Exception:
+            return "CSV file could not be decoded."
+    if name.endswith(".json"):
+        try:
+            text = raw.decode("utf-8", errors="ignore")
+            return _summarize_json_text(text)
+        except Exception:
+            return "JSON file could not be decoded."
 
     try:
         return raw.decode("utf-8", errors="ignore")
@@ -234,7 +342,7 @@ def _uploaded_file_to_text(uploaded_file) -> str:
         return f"Binary file uploaded: {uploaded_file.name} (size={len(raw)} bytes)"
 
 
-def _create_local_paper_from_upload(uploaded_file, target_dir: str) -> str:
+def _create_local_paper_from_upload(uploaded_file, target_dir: str) -> tuple[str, str]:
     text = _uploaded_file_to_text(uploaded_file).strip()
     filename = _safe_filename(uploaded_file.name, "dataset.txt")
     stem = Path(filename).stem
@@ -245,7 +353,7 @@ def _create_local_paper_from_upload(uploaded_file, target_dir: str) -> str:
         f.write("Authors: User Upload\n\n")
         f.write(text[:12000] if text else "No readable text extracted from uploaded file.")
 
-    return out_path
+    return out_path, text
 
 
 def _uploaded_file_to_paper(uploaded_file) -> Dict[str, Any]:
@@ -384,7 +492,7 @@ def _evp_view():
             key="evp_dataset_upload",
         )
         budget = st.select_slider("Budget Scale", options=["Low", "Medium", "High"], value="Medium")
-        llm_mode = st.radio("LLM Mode", options=["mock", "local", "mock_static"], index=0)
+        llm_mode = st.radio("LLM Mode", options=["mock", "openai", "local", "mock_static"], index=0)
         goal = st.text_area(
             "Goal",
             value="Improve outcome quality while minimizing compute cost.",
@@ -400,13 +508,14 @@ def _evp_view():
         else:
             os.environ["EVP_LLM_MODE"] = llm_mode
             upload_dir = _ensure_dir("data/evp_uploads")
-            _create_local_paper_from_upload(dataset_file, upload_dir)
+            _, dataset_profile = _create_local_paper_from_upload(dataset_file, upload_dir)
             os.environ["EVP_LOCAL_PAPERS_DIR"] = upload_dir
 
             dataset_name = Path(dataset_file.name).stem
             constraints = {
                 "budget": budget,
                 "dataset_uploaded": dataset_file.name,
+                "dataset_profile": dataset_profile,
             }
             with st.spinner("Running EVP..."):
                 st.session_state.evp_result = run_async(
@@ -583,16 +692,20 @@ def _paper_lab_view():
 
     with c1:
         st.markdown('<div class="section-shell">', unsafe_allow_html=True)
-        pdf = st.file_uploader("Upload a research paper (.pdf)", type=["pdf"], key="lab_pdf_upload")
+        pdf = st.file_uploader(
+            "Upload a research paper (.pdf, .txt, .md, .csv, .json)",
+            type=["pdf", "txt", "md", "csv", "json"],
+            key="lab_pdf_upload",
+        )
         llm_mode = st.radio("Lab LLM", options=["mock", "local"], index=0)
         run = st.button("Run Paper Audit", type="primary")
 
         if run:
             if pdf is None:
-                st.error("Please upload a PDF.")
+                st.error("Please upload a file.")
             else:
                 with st.spinner("Running Paper Audit Lab..."):
-                    raw_text = extract_pdf_text(pdf.read())
+                    raw_text = _uploaded_file_to_text(pdf)
                     llm_client = _get_lab_llm(llm_mode)
                     deconstruction = deconstruct_paper(raw_text, llm_client=llm_client)
                     audit = inspect_consistency(

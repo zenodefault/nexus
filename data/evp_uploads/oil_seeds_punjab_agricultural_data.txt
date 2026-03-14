@@ -1,0 +1,11 @@
+Title: oil_seeds_punjab_agricultural_data
+Authors: User Upload
+
+CSV dataset summary:
+Columns (16): Year, Crop_Name, Crop_Type, District_Name, Area_Hectares, Production_Tonnes, Yield_Kg_Per_Hectare, Season, Temperature_Celsius_Avg, Rainfall_MM, Irrigation_Requirement_MM, Soil_Type, Market_Price_PKR_Per_Kg, Export_Status, Quality_Grade, Purity_Percent
+Rows: 78
+Numeric columns (from sample): Year (min=2.02e+03, max=2.02e+03, mean=2.02e+03, n=78); Area_Hectares (min=2.1e+03, max=2.95e+04, mean=1.21e+04, n=78); Production_Tonnes (min=1.68e+03, max=5.9e+04, mean=1.88e+04, n=78); Yield_Kg_Per_Hectare (min=800, max=2e+03, mean=1.34e+03, n=78); Temperature_Celsius_Avg (min=17.2, max=36.7, mean=28.3, n=78); Rainfall_MM (min=280, max=750, mean=510, n=78); Irrigation_Requirement_MM (min=100, max=320, mean=220, n=78); Market_Price_PKR_Per_Kg (min=44, max=152, mean=90.7, n=78); Purity_Percent (min=93.8, max=99.7, mean=97, n=78)
+Sample rows:
+{"Year": "2020", "Crop_Name": "Sunflower", "Crop_Type": "Oilseed", "District_Name": "Okara", "Area_Hectares": "12500", "Production_Tonnes": "18750", "Yield_Kg_Per_Hectare": "1500", "Season": "Spring", "Temperature_Celsius_Avg": "32.5", "Rainfall_MM": "425", "Irrigation_Requirement_MM": "250", "Soil_Type": "Sandy Loam", "Market_Price_PKR_Per_Kg": "65", "Export_Status": "Exported", "Quality_Grade": "A", "Purity_Percent": "96.2"}
+{"Year": "2020", "Crop_Name": "Sunflower", "Crop_Type": "Oilseed", "District_Name": "Jhang", "Area_Hectares": "11200", "Production_Tonnes": "16240", "Yield_Kg_Per_Hectare": "1450", "Season": "Spring", "Temperature_Celsius_Avg": "31.8", "Rainfall_MM": "390", "Irrigation_Requirement_MM": "260", "Soil_Type": "Loamy", "Market_Price_PKR_Per_Kg": "63", "Export_Status": "Exported", "Quality_Grade": "A", "Purity_Percent": "95.8"}
+{"Year": "2020", "Crop_Name": "Sunflower", "Crop_Type": "Oilseed", "District_Name": "Faisalabad", "Area_Hectares": "15000", "Production_Tonnes": "22500", "Yield_Kg_Per_Hectare": "1500", "Season": "Spring", "Temperature_Celsius_Avg": "33.2", "Rainfall_MM": "410", "Irrigation_Requirement_MM": "240", "Soil_Type": "Sandy Loam", "Market_Price_PKR_Per_Kg": "65", "Export_Status": "Exported", "Quality_Grade": "A", "Purity_Percent": "96.5"}

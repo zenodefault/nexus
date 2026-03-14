@@ -10,7 +10,8 @@ class HypothesisAgent(BaseAgent):
     goal = "Generate candidate experiments based on literature context."
     prompt_template = (
         "You are HypothesisAgent. Given the context: {context} "
-        "generate 3 experiment hypotheses. "
+        "generate 3 experiment hypotheses tailored to the dataset and goal. "
+        "Prefer data analysis or modeling steps grounded in the dataset profile over generic architecture swaps. "
         "Return JSON with fields: summary (string), key_findings (list), limitations (list), hypotheses (list of objects with id, title, model). "
         "If unknown, state unknown."
     )
@@ -28,21 +29,26 @@ class HypothesisAgent(BaseAgent):
             },
         )
         if not payload.get("hypotheses"):
+            dataset_profile = context.constraints.get("dataset_profile", "")
+            goal = context.goal or "the stated goal"
+            focus = "dataset-driven analysis"
+            if dataset_profile:
+                focus = "analysis grounded in the dataset profile"
             payload["hypotheses"] = [
                 {
                     "id": "exp_1",
-                    "title": f"{context.topic} baseline with data augmentation",
-                    "model": "Baseline + augmentation",
+                    "title": f"Exploratory analysis to answer: {goal}",
+                    "model": f"EDA + summary ({focus})",
                 },
                 {
                     "id": "exp_2",
-                    "title": f"{context.topic} with transfer learning",
-                    "model": "Transfer learning",
+                    "title": "Group comparison on key outcome columns",
+                    "model": "Statistical comparison",
                 },
                 {
                     "id": "exp_3",
-                    "title": f"{context.topic} with lightweight architecture",
-                    "model": "Efficient model",
+                    "title": "Predict outcome drivers using a simple baseline model",
+                    "model": "Baseline regression/classification",
                 },
             ]
         require_fields(payload, ["summary", "key_findings", "limitations", "hypotheses"], "HypothesisAgent")
